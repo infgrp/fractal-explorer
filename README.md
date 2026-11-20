@@ -2,6 +2,8 @@
 
 폴리곤 메시 없이, three.js `ShaderMaterial` 의 프래그먼트 셰이더에서 **레이마칭 + 거리 추정 함수(SDF)** 로 3D 프랙탈을 그리고, 그 속을 카메라로 날아다니며 빛을 비춰 보는 실험입니다.
 
+라이브: https://infgrp.github.io/fractal-explorer/
+
 `index.html` 한 파일로 동작합니다. 백엔드는 없고, three.js 0.170 을 CDN에서 불러오므로 인터넷 연결이 필요합니다. WebGL2 가 되는 브라우저(최신 Chrome·Edge·Safari)에서 여세요.
 
 ## 그리는 방법
