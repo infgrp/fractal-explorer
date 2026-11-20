@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>프랙탈 탐험</title>
+<meta name="description" content="레이마칭과 거리 추정 함수(SDF)로 그리는 만델벌브·멘거 스펀지 속을 비행하며 조명을 비추는 실험">
+<style>
+  :root { --bg: #030308; --panel: rgba(10, 10, 26, 0.72); --line: rgba(170, 180, 255, 0.18);
+    --ink: #eef0ff; --muted: #a2a6cc; --pink: #ff5fb8; --cyan: #4ff3ff; --gold: #ffd166; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; touch-action: none;
+    font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+  canvas#c.drag { cursor: grabbing; }
+  .glass { background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  .panel { position: fixed; top: 14px; left: 14px; width: 304px; max-height: calc(100% - 28px); overflow-y: auto; padding: 16px; scrollbar-width: thin; transition: transform .25s; }
+  .panel.hide { transform: translateX(calc(-100% - 20px)); }
+  h1 { margin: 0 0 3px; font-size: 19px; letter-spacing: -.4px;
+    background: linear-gradient(90deg, var(--pink), var(--gold) 45%, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { font-size: 11.5px; color: var(--muted); line-height: 1.55; margin-bottom: 8px; }
+  h2 { font-size: 11px; letter-spacing: 1.6px; color: var(--muted); margin: 14px 0 6px; }
+  .row { display: grid; grid-template-columns: 82px 1fr 46px; align-items: center; gap: 8px; font-size: 12.5px; margin: 5px 0; }
+  .row output { text-align: right; color: var(--gold); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .row.two { grid-template-columns: 82px 1fr; }
+  input[type=range] { width: 100%; accent-color: var(--pink); }
+  input[type=color] { width: 100%; height: 26px; border: 1px solid var(--line); border-radius: 8px; background: transparent; padding: 0 2px; cursor: pointer; }
+  select, button { font: inherit; font-size: 12.5px; color: var(--ink); background: rgba(255,255,255,.07);
+    border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; cursor: pointer; }
+  select { width: 100%; } select option { background: #15122e; }
+  button:hover { background: rgba(255,255,255,.14); }
+  button.on { background: linear-gradient(90deg, rgba(255,95,184,.5), rgba(138,107,255,.5)); border-color: transparent; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .seg button { padding: 7px 4px; font-size: 12px; white-space: nowrap; }
+  .seg button.sel { background: linear-gradient(90deg, #ff5fb8, #8a6bff); border-color: transparent; font-weight: 700; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; font-size: 12.5px; margin-top: 4px; }
+  .checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  input[type=checkbox] { accent-color: var(--cyan); }
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 10px; }
+  kbd { font-family: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255,255,255,.06); }
+  .lights { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .lights span { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 3px 8px; border-radius: 99px; border: 1px solid var(--line); }
+  .lights i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px currentColor; }
+
+  .hud { position: fixed; top: 14px; right: 14px; width: 250px; padding: 12px 16px; font-size: 12.5px; }
+  .zoom { display: flex; align-items: baseline; justify-content: space-between; }
+  .zoom span { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.5px;
+    background: linear-gradient(90deg, var(--gold), var(--pink)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .zoom small { color: var(--muted); }
+  .kv { display: flex; justify-content: space-between; margin: 3px 0; color: var(--muted); }
+  .kv b { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 650; }
+  .warn { margin-top: 6px; font-size: 11.5px; color: #ffcf8a; line-height: 1.45; display: none; }
+  .warn.show { display: block; }
+  .bottom { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; padding: 8px; align-items: center; }
+  .bottom .sp { font-size: 12px; color: var(--muted); padding: 0 4px; white-space: nowrap; }
+  .toggle { position: fixed; bottom: 14px; right: 14px; }
+  .pad { position: fixed; bottom: 80px; right: 14px; display: none; flex-direction: column; gap: 8px; }
+  .pad button { width: 64px; height: 52px; font-size: 18px; border-radius: 14px; }
+  .toast { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); padding: 10px 18px; font-size: 13.5px; font-weight: 600; opacity: 0; transition: opacity .4s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  @media (max-width: 760px), (pointer: coarse) {
+    .pad { display: flex; }
+  }
+  @media (max-width: 760px) {
+    .panel { width: calc(100% - 28px); max-height: 48%; top: auto; bottom: 64px; }
+    .hud { left: 14px; right: auto; width: 200px; padding: 8px 12px; }
+    .zoom span { font-size: 20px; }
+    .hud .kv:nth-of-type(n+4) { display: none; }
+    .bottom { left: 14px; transform: none; }
+    .bottom .sp { display: none; }
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="panel glass" id="panel">
+  <h1>프랙탈 탐험</h1>
+  <div class="sub">폴리곤 없이, 화면의 픽셀마다 광선을 쏘아 <b>거리 추정 함수(SDF)</b>만큼씩 걸어가며(레이마칭) 표면을 찾습니다. 정밀도를 픽셀 크기에 맞추므로 가까이 갈수록 더 작은 디테일이 나타납니다.</div>
+
+  <h2>프랙탈</h2>
+  <div class="seg" id="types">
+    <button data-type="0" class="sel">만델벌브</button>
+    <button data-type="1">멘거 스펀지</button>
+    <button data-type="2">무한 스펀지</button>
+  </div>
+  <div class="row" id="powerRow"><b>거듭제곱</b><input type="range" id="power" min="2" max="16" step="0.1" value="8"><output id="powerV"></output></div>
+  <div class="row"><b>반복 횟수</b><input type="range" id="iter" min="2" max="24" step="1" value="12"><output id="iterV"></output></div>
+  <div class="checks"><label><input type="checkbox" id="morph"> 거듭제곱 천천히 바꾸기</label></div>
+
+  <h2>조명</h2>
+  <div class="checks">
+    <label><input type="checkbox" id="headOn" checked> 손전등</label>
+    <label><input type="checkbox" id="sunOn" checked> 해</label>
+    <label><input type="checkbox" id="shadowOn" checked> 그림자</label>
+    <label><input type="checkbox" id="aoOn" checked> 틈새 그늘(AO)</label>
+  </div>
+  <div class="row two"><b>손전등 색</b><input type="color" id="headCol" value="#fff1d6"></div>
+  <div class="row"><b>손전등 세기</b><input type="range" id="headPow" min="0" max="4" step="0.05" value="1.6"><output id="headPowV"></output></div>
+  <div class="row"><b>손전등 폭</b><input type="range" id="headCone" min="10" max="90" step="1" value="38"><output id="headConeV"></output></div>
+  <div class="row two"><b>햇빛 색</b><input type="color" id="sunCol" value="#ffd2a8"></div>
+  <div class="row"><b>해 방향</b><input type="range" id="sunAz" min="0" max="360" step="1" value="40"><output id="sunAzV"></output></div>
+  <div class="row"><b>해 높이</b><input type="range" id="sunEl" min="-80" max="89" step="1" value="35"><output id="sunElV"></output></div>
+  <div class="btns"><button id="addLight">💡 여기에 빛 놓기 (L)</button><button id="clearLights">빛 모두 끄기</button></div>
+  <div class="lights" id="lightList"></div>
+
+  <h2>색과 분위기</h2>
+  <div class="row two"><b>색 조합</b>
+    <select id="palette">
+      <option value="0">무지개 진주</option>
+      <option value="1">용암</option>
+      <option value="2">심해</option>
+      <option value="3">오로라</option>
+      <option value="4">황금</option>
+    </select></div>
+  <div class="row"><b>빛 무리</b><input type="range" id="glow" min="0" max="2" step="0.05" value="0.7"><output id="glowV"></output></div>
+  <div class="row"><b>안개</b><input type="range" id="fog" min="0" max="1" step="0.05" value="0.45"><output id="fogV"></output></div>
+
+  <h2>화질</h2>
+  <div class="row"><b>해상도</b><input type="range" id="scale" min="0.25" max="1" step="0.05" value="0.75"><output id="scaleV"></output></div>
+  <div class="row"><b>최대 걸음</b><input type="range" id="steps" min="60" max="400" step="10" value="180"><output id="stepsV"></output></div>
+  <div class="row"><b>디테일</b><input type="range" id="detail" min="0.3" max="3" step="0.05" value="1"><output id="detailV"></output></div>
+  <div class="checks"><label><input type="checkbox" id="crisp" checked> 멈추면 선명하게</label></div>
+
+  <div class="hint">
+    <b>비행</b> <kbd>W</kbd><kbd>S</kbd> 앞뒤 · <kbd>A</kbd><kbd>D</kbd> 옆 · <kbd>R</kbd><kbd>F</kbd> 위아래 · <kbd>Q</kbd><kbd>E</kbd> 기울이기 · 드래그로 둘러보기 · <kbd>Shift</kbd> 빠르게 · 휠로 속도<br>
+    속도는 <b>표면까지 거리에 비례</b>해서, 가까이 갈수록 저절로 느려집니다. <kbd>Z</kbd> 자동 확대 · <kbd>L</kbd> 빛 놓기 · <kbd>H</kbd> 처음 위치 · <kbd>Tab</kbd> 패널 숨기기
+  </div>
+</div>
+
+<div class="hud glass">
+  <div class="zoom"><span id="zoom">×1</span><small>확대 배율</small></div>
+  <div class="kv">표면까지 거리 <b id="dist">–</b></div>
+  <div class="kv">비행 속도 <b id="speed">–</b></div>
+  <div class="kv">FPS · 해상도 <b id="fps">–</b></div>
+  <div class="kv">위치 <b id="pos">–</b></div>
+  <div class="warn" id="warn">GPU 단정밀도(float32)의 한계에 가까워졌습니다. 더 들어가면 표면이 거칠게 보일 수 있습니다.</div>
+</div>
+
+<div class="bottom glass">
+  <button id="auto">🔍 자동 확대 (Z)</button>
+  <button id="home">⌂ 처음 위치</button>
+  <span class="sp" id="speedMul">속도 ×1.0</span>
+</div>
+<div class="pad" id="pad"><button data-move="fwd">▲</button><button data-move="back">▼</button></div>
+<button class="toggle" id="togglePanel">☰ 설정</button>
+<div class="toast glass" id="toast"></div>
+
+<script type="module">
+import * as THREE from 'three';
+const $ = id => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+
+/* ───────────── 1. 설정 ───────────── */
+const S = { type: 0, power: 8, iter: 12, morph: false, headOn: true, sunOn: true, shadowOn: true, aoOn: true,
+  headCol: '#fff1d6', headPow: 1.6, headCone: 38, sunCol: '#ffd2a8', sunAz: 40, sunEl: 35,
+  palette: 0, glow: 0.7, fog: 0.45, scale: 0.75, steps: 180, detail: 1, crisp: true };
+for (const k of Object.keys(S)) if (Q.has(k)) S[k] = typeof S[k] === 'number' ? Number(Q.get(k)) : typeof S[k] === 'boolean' ? Q.get(k) !== '0' : Q.get(k);
+if (S.type === 1 && !Q.has('iter')) S.iter = 5;
+if (S.type === 2 && !Q.has('iter')) S.iter = 7;
+
+/* ───────────── 2. 거리 추정 함수 (CPU, 배정밀도) — 셰이더와 같은 식 ─────────────
+   카메라 비행 속도와 충돌 방지에 쓴다. */
+function deBulb(px, py, pz) {
+  // 셰이더와 같이 y 를 위로: (x, z, y) 순서로 넣는다
+  let x = px, y = pz, z = py, dr = 1, r = 0;
+  const P = S.power;
+  for (let i = 0; i < S.iter; i++) {
+    r = Math.sqrt(x * x + y * y + z * z);
+    if (r > 2) break;
+    const th = Math.acos(Math.max(-1, Math.min(1, z / (r || 1e-30)))) * P, ph = Math.atan2(y, x) * P;
+    dr = Math.pow(r, P - 1) * P * dr + 1;
+    const zr = Math.pow(r, P);
+    x = zr * Math.sin(th) * Math.cos(ph) + px; y = zr * Math.sin(th) * Math.sin(ph) + pz; z = zr * Math.cos(th) + py;
+  }
+  r = Math.sqrt(x * x + y * y + z * z);
+  return 0.5 * Math.log(Math.max(r, 1e-30)) * r / dr;
+}
+const fmod = (a, b) => a - b * Math.floor(a / b);
+function deMenger(px, py, pz, infinite) {
+  let d = infinite ? -1e9 : Math.max(Math.abs(px) - 1, Math.abs(py) - 1, Math.abs(pz) - 1);
+  if (!infinite) { const qx = Math.max(Math.abs(px) - 1, 0), qy = Math.max(Math.abs(py) - 1, 0), qz = Math.max(Math.abs(pz) - 1, 0); d = Math.min(d, 0) + Math.hypot(qx, qy, qz); }
+  let s = 1;
+  for (let m = 0; m < S.iter; m++) {
+    const ax = fmod(px * s, 2) - 1, ay = fmod(py * s, 2) - 1, az = fmod(pz * s, 2) - 1;
+    s *= 3;
+    const rx = Math.abs(1 - 3 * Math.abs(ax)), ry = Math.abs(1 - 3 * Math.abs(ay)), rz = Math.abs(1 - 3 * Math.abs(az));
+    const da = Math.max(rx, ry), db = Math.max(ry, rz), dc = Math.max(rz, rx);
+    const c = (Math.min(da, db, dc) - 1) / s;
+    if (c > d) d = c;
+  }
+  return d;
+}
+const DE = p => (S.type === 0 ? deBulb(p.x, p.y, p.z) : deMenger(p.x, p.y, p.z, S.type === 2));
+
+/* ───────────── 3. 셰이더 ───────────── */
+const frag = /* glsl */`
+precision highp float;
+uniform vec2 uRes;
+uniform vec3 uCamPos;
+uniform mat3 uCamRot;
+uniform float uFov;
+uniform int uType;
+uniform float uPower;
+uniform int uIter;
+uniform int uSteps;
+uniform float uDetail;
+uniform float uScale;          // 카메라에서 표면까지 거리 — 안개·빛 거리를 배율에 맞춘다
+uniform vec3 uSunDir, uSunCol;
+uniform float uSunOn, uShadowOn, uAoOn;
+uniform vec3 uHeadCol;
+uniform float uHeadPow, uHeadCos;
+uniform int uNL;
+uniform vec3 uLP[6];
+uniform vec3 uLC[6];
+uniform float uLR[6];
+uniform vec3 uPA, uPB, uPC, uPD;
+uniform float uGlow, uFog, uTime;
+varying vec2 vUv;
+
+float trapA, trapB;
+
+float deBulb(vec3 p) {
+  vec3 c = p.xzy, z = c;
+  float dr = 1.0, r = 0.0;
+  trapA = 1e9; trapB = 1e9;
+  for (int i = 0; i < 64; i++) {
+    if (i >= uIter) break;
+    r = length(z);
+    if (r > 2.0) break;
+    float th = acos(clamp(z.z / r, -1.0, 1.0)) * uPower;
+    float ph = atan(z.y, z.x) * uPower;
+    dr = pow(r, uPower - 1.0) * uPower * dr + 1.0;
+    float zr = pow(r, uPower);
+    z = zr * vec3(sin(th) * cos(ph), sin(th) * sin(ph), cos(th)) + c;
+    trapA = min(trapA, length(z));
+    trapB = min(trapB, abs(z.z));
+  }
+  return 0.5 * log(r) * r / dr;
+}
+float deMenger(vec3 p, bool inf) {
+  float d;
+  if (inf) d = -1e9;
+  else { vec3 q = abs(p) - 1.0; d = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0); }
+  float s = 1.0;
+  trapA = 0.0; trapB = 1e9;
+  for (int m = 0; m < 16; m++) {
+    if (m >= uIter) break;
+    vec3 a = mod(p * s, 2.0) - 1.0;
+    s *= 3.0;
+    vec3 r = abs(1.0 - 3.0 * abs(a));
+    float da = max(r.x, r.y), db = max(r.y, r.z), dc = max(r.z, r.x);
+    float c = (min(da, min(db, dc)) - 1.0) / s;
+    if (c > d) { d = c; trapA = float(m) / float(uIter); }
+    trapB = min(trapB, length(a) * 0.5);
+  }
+  return d;
+}
+float map(vec3 p) { return uType == 0 ? deBulb(p) : deMenger(p, uType == 2); }
+
+vec3 palette(float t) { return uPA + uPB * cos(6.28318 * (uPC * t + uPD)); }
+
+vec3 calcNormal(vec3 p, float e) {
+  const vec2 k = vec2(1.0, -1.0);
+  return normalize(k.xyy * map(p + k.xyy * e) + k.yyx * map(p + k.yyx * e) + k.yxy * map(p + k.yxy * e) + k.xxx * map(p + k.xxx * e));
+}
+float softShadow(vec3 ro, vec3 rd, float t0, float tmax) {
+  float res = 1.0, t = t0;
+  for (int i = 0; i < 64; i++) {
+    float h = map(ro + rd * t);
+    res = min(res, 10.0 * h / t);
+    t += clamp(h, t0 * 0.5, tmax * 0.1);
+    if (res < 0.002 || t > tmax) break;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+float calcAO(vec3 p, vec3 n, float s) {
+  float occ = 0.0, w = 1.0;
+  for (int i = 1; i <= 5; i++) {
+    float h = s * float(i);
+    occ += (h - map(p + n * h)) * w;
+    w *= 0.6;
+  }
+  return clamp(1.0 - 1.6 * occ / s, 0.0, 1.0);
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+  float th = tan(uFov * 0.5);
+  vec3 rd = normalize(uCamRot * vec3(uv * 2.0 * th, -1.0));
+  vec3 fwd = uCamRot * vec3(0.0, 0.0, -1.0);
+  vec3 ro = uCamPos;
+  float pix = 2.0 * th / uRes.y;           // 한 픽셀이 보는 각도
+
+  float t = 0.0, d = 1.0, eps = 0.0;
+  int steps = 0;
+  bool hit = false;
+  float tmax = 12.0;
+  for (int i = 0; i < 1000; i++) {
+    if (i >= uSteps) break;
+    vec3 p = ro + rd * t;
+    d = map(p);
+    eps = max(pix * t * uDetail, 2e-7);    // 정밀도 = 이 거리에서 한 픽셀 크기
+    steps = i;
+    if (d < eps) { hit = true; break; }
+    t += d * (uType == 0 ? 0.9 : 1.0);
+    if (t > tmax) break;
+  }
+  float glowAmt = float(steps) / float(uSteps);
+
+  // 배경: 깊은 우주색
+  vec3 bg = mix(vec3(0.015, 0.012, 0.04), vec3(0.06, 0.03, 0.12), 0.5 + 0.5 * rd.y);
+  bg += uSunOn * uSunCol * pow(max(dot(rd, uSunDir), 0.0), 64.0) * 0.6;
+  vec3 col = bg;
+
+  float tA = trapA, tB = trapB;
+  if (hit) {
+    vec3 p = ro + rd * t;
+    vec3 n = calcNormal(p, eps * 0.5);
+    vec3 base = palette(uType == 0 ? tA * 0.55 + tB * 0.35 + 0.1 : tA * 0.9 + length(p) * 0.12 + 0.15);
+    base = clamp(base, 0.0, 1.0);
+    float scale = max(t, 1e-6);
+    float ao = uAoOn > 0.5 ? calcAO(p, n, scale * 0.05 + eps) : 1.0;
+    vec3 lin = vec3(0.0);
+    // 은은한 하늘빛
+    lin += (0.16 + 0.10 * n.y) * vec3(0.55, 0.6, 1.0) * ao;
+    // 해
+    if (uSunOn > 0.5) {
+      float dif = max(dot(n, uSunDir), 0.0);
+      float sh = (uShadowOn > 0.5 && dif > 0.0) ? softShadow(p + n * eps * 2.0, uSunDir, eps * 4.0, max(scale * 3.0, 0.02)) : 1.0;
+      vec3 h = normalize(uSunDir - rd);
+      lin += uSunCol * dif * sh * 1.3;
+      lin += uSunCol * pow(max(dot(n, h), 0.0), 48.0) * dif * sh * 0.8;
+    }
+    // 손전등: 카메라에서 앞으로 비추는 원뿔
+    if (uHeadPow > 0.0) {
+      float cone = smoothstep(uHeadCos, mix(uHeadCos, 1.0, 0.45), dot(rd, fwd));
+      float att = 1.0 / (1.0 + pow(t / (uScale * 6.0 + 1e-7), 2.0));
+      float dif = max(dot(n, -rd), 0.0);
+      lin += uHeadCol * uHeadPow * cone * att * (dif * 1.2 + pow(dif, 32.0) * 0.6) * mix(0.5, 1.0, ao);
+    }
+    // 놓아 둔 빛
+    for (int k = 0; k < 6; k++) {
+      if (k >= uNL) break;
+      vec3 lv = uLP[k] - p;
+      float ld = length(lv);
+      vec3 l = lv / ld;
+      float dif = max(dot(n, l), 0.0);
+      float att = 1.0 / (1.0 + pow(ld / uLR[k], 2.0));
+      vec3 h = normalize(l - rd);
+      lin += uLC[k] * att * (dif * 1.6 + pow(max(dot(n, h), 0.0), 40.0) * dif) * mix(0.4, 1.0, ao);
+    }
+    col = base * lin;
+    // 가장자리 빛 (테두리)
+    col += base * pow(1.0 - max(dot(n, -rd), 0.0), 3.0) * 0.18 * ao;
+    // 안개: 배율에 맞춘 거리
+    float f = 1.0 - exp(-uFog * t / (uScale * 25.0 + 1e-7));
+    col = mix(col, bg, clamp(f, 0.0, 1.0));
+  }
+  // 걸음 수에 따른 빛 무리 (표면 가까이 스친 광선일수록 밝게)
+  vec3 gc = palette(0.15 + glowAmt * 0.6);
+  col += gc * pow(glowAmt, 2.2) * uGlow * 0.9;
+  // 놓아 둔 빛 자체를 작은 별처럼
+  for (int k = 0; k < 6; k++) {
+    if (k >= uNL) break;
+    vec3 lv = uLP[k] - ro;
+    float along = dot(lv, rd);
+    if (along > 0.0 && (!hit || along < t)) {
+      float dd = length(lv - rd * along) / (along * pix * 6.0);
+      col += uLC[k] * 0.6 * exp(-dd * dd);
+    }
+  }
+  col = col / (1.0 + col * 0.35);                 // 부드러운 톤 매핑
+  col = pow(clamp(col, 0.0, 1.0), vec3(0.4545));
+  // 비네팅
+  vec2 q = gl_FragCoord.xy / uRes;
+  col *= 0.6 + 0.4 * pow(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y), 0.2);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+const vert = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`;
+
+const PALETTES = [   // iq 코사인 팔레트 a, b, c, d
+  [[0.55, 0.5, 0.55], [0.45, 0.45, 0.45], [1.0, 1.0, 1.0], [0.0, 0.33, 0.67]],
+  [[0.6, 0.3, 0.2], [0.5, 0.35, 0.25], [1.0, 0.8, 0.6], [0.0, 0.1, 0.2]],
+  [[0.2, 0.45, 0.6], [0.25, 0.35, 0.4], [0.8, 1.0, 1.0], [0.6, 0.45, 0.3]],
+  [[0.35, 0.6, 0.55], [0.4, 0.4, 0.45], [1.0, 1.0, 0.8], [0.3, 0.55, 0.85]],
+  [[0.75, 0.6, 0.35], [0.3, 0.25, 0.2], [1.0, 0.9, 0.6], [0.05, 0.12, 0.25]],
+];
+
+/* ───────────── 4. 렌더러: 낮은 해상도 표적에 그린 뒤 화면에 늘려 붙인다 ───────────── */
+const canvas = $('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: Q.has('shot') });
+renderer.setPixelRatio(1);
+const quadGeo = new THREE.PlaneGeometry(2, 2);
+const U = {
+  uRes: { value: new THREE.Vector2() }, uCamPos: { value: new THREE.Vector3() }, uCamRot: { value: new THREE.Matrix3() },
+  uFov: { value: 65 * Math.PI / 180 }, uType: { value: 0 }, uPower: { value: 8 }, uIter: { value: 12 }, uSteps: { value: 180 },
+  uDetail: { value: 1 }, uScale: { value: 1 }, uSunDir: { value: new THREE.Vector3() }, uSunCol: { value: new THREE.Color() },
+  uSunOn: { value: 1 }, uShadowOn: { value: 1 }, uAoOn: { value: 1 }, uHeadCol: { value: new THREE.Color() }, uHeadPow: { value: 1 },
+  uHeadCos: { value: 0.8 }, uNL: { value: 0 },
+  uLP: { value: Array.from({ length: 6 }, () => new THREE.Vector3()) }, uLC: { value: Array.from({ length: 6 }, () => new THREE.Vector3()) },
+  uLR: { value: new Array(6).fill(1) },
+  uPA: { value: new THREE.Vector3() }, uPB: { value: new THREE.Vector3() }, uPC: { value: new THREE.Vector3() }, uPD: { value: new THREE.Vector3() },
+  uGlow: { value: 0.7 }, uFog: { value: 0.45 }, uTime: { value: 0 },
+};
+const marchScene = new THREE.Scene();
+marchScene.add(new THREE.Mesh(quadGeo, new THREE.ShaderMaterial({ uniforms: U, vertexShader: vert, fragmentShader: frag, depthTest: false, depthWrite: false })));
+const blitScene = new THREE.Scene();
+const blitMat = new THREE.ShaderMaterial({ uniforms: { uTex: { value: null } }, vertexShader: vert, depthTest: false, depthWrite: false,
+  fragmentShader: `uniform sampler2D uTex; varying vec2 vUv; void main(){ gl_FragColor = texture2D(uTex, vUv); }` });
+blitScene.add(new THREE.Mesh(quadGeo, blitMat));
+const dummyCam = new THREE.Camera();
+let rt = null, rtScale = 0;
+function ensureTarget(scale) {
+  const w = Math.max(16, Math.round(innerWidth * Math.min(devicePixelRatio, 2) * scale)), h = Math.max(16, Math.round(innerHeight * Math.min(devicePixelRatio, 2) * scale));
+  if (rt && rt.width === w && rt.height === h) return;
+  rt?.dispose();
+  rt = new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
+  blitMat.uniforms.uTex.value = rt.texture; rtScale = scale;
+}
+function resize() { renderer.setSize(innerWidth, innerHeight, false); rt?.dispose(); rt = null; }
+addEventListener('resize', resize); resize();
+
+/* ───────────── 5. 카메라 비행 ───────────── */
+const cam = { pos: new THREE.Vector3(), q: new THREE.Quaternion() };
+const HOMES = {
+  0: { pos: [0, 0.35, 2.55], look: [0, 0, 0] },
+  1: { pos: [2.3, 1.7, 2.9], look: [0, 0, 0] },
+  2: { pos: [0.02, 0.05, 0.98], look: [0.3, -0.1, -1] },
+};
+function home() {
+  const h = HOMES[S.type];
+  cam.pos.set(...h.pos);
+  const m = new THREE.Matrix4().lookAt(cam.pos, new THREE.Vector3(...h.look), new THREE.Vector3(0, 1, 0));
+  cam.q.setFromRotationMatrix(m);
+  auto = false; $('auto').classList.remove('on');
+  lights.length = 0; renderLights();
+}
+const keys = new Set();
+let speedMul = 1, auto = false, lastMove = 0;
+addEventListener('keydown', e => {
+  if (['INPUT', 'SELECT'].includes(e.target.tagName) && e.target.type !== 'range' && e.target.type !== 'checkbox') return;
+  const k = e.key.toLowerCase();
+  keys.add(k);
+  if (k === 'z') toggleAuto();
+  if (k === 'l') addLight();
+  if (k === 'h') home();
+  if (e.key === 'Tab') { e.preventDefault(); $('panel').classList.toggle('hide'); }
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => keys.clear());
+let drag = null;
+canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('drag'); });
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag = { x: e.clientX, y: e.clientY };
+  const k = 0.0035;
+  cam.q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dx * k));
+  cam.q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -dy * k));
+  cam.q.normalize(); lastMove = performance.now();
+});
+const endDrag = () => { drag = null; canvas.classList.remove('drag'); };
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', e => { e.preventDefault(); speedMul = Math.min(8, Math.max(0.125, speedMul * (e.deltaY < 0 ? 1.2 : 1 / 1.2))); $('speedMul').textContent = `속도 ×${speedMul.toFixed(2)}`; }, { passive: false });
+const padHeld = new Set();
+document.querySelectorAll('[data-move]').forEach(b => {
+  b.addEventListener('pointerdown', e => { e.preventDefault(); padHeld.add(b.dataset.move); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => padHeld.delete(b.dataset.move));
+});
+function toggleAuto() { auto = !auto; $('auto').classList.toggle('on', auto); if (auto) toast('표면 쪽으로 계속 다가갑니다. 거리가 줄수록 느려지므로 끝없이 확대됩니다.'); }
+
+const _v = new THREE.Vector3(), _f = new THREE.Vector3();
+let camDE = 1;
+function fly(dt) {
+  camDE = Math.max(DE(cam.pos), 1e-9);
+  const boost = keys.has('shift') ? 4 : 1;
+  const v = camDE * 1.1 * speedMul * boost;       // 속도 ∝ 표면까지 거리
+  _v.set(0, 0, 0);
+  if (keys.has('w') || keys.has('arrowup') || padHeld.has('fwd')) _v.z -= 1;
+  if (keys.has('s') || keys.has('arrowdown') || padHeld.has('back')) _v.z += 1;
+  if (keys.has('a') || keys.has('arrowleft')) _v.x -= 1;
+  if (keys.has('d') || keys.has('arrowright')) _v.x += 1;
+  if (keys.has('r')) _v.y += 1;
+  if (keys.has('f')) _v.y -= 1;
+  if (auto) _v.z -= 1.2;
+  const roll = (keys.has('q') ? 1 : 0) - (keys.has('e') ? 1 : 0);
+  if (roll) { cam.q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll * dt * 1.2)); lastMove = performance.now(); }
+  if (_v.lengthSq() > 0) {
+    _v.normalize().multiplyScalar(v * dt).applyQuaternion(cam.q);
+    // 표면을 뚫지 않게: 한 번에 남은 거리의 절반 넘게는 못 간다
+    const lim = camDE * 0.5;
+    if (_v.length() > lim) _v.setLength(lim);
+    _f.copy(cam.pos).add(_v);
+    if (DE(_f) > camDE * 0.05) cam.pos.copy(_f);
+    lastMove = performance.now();
+  }
+  return v;
+}
+
+/* ───────────── 6. 놓아 두는 빛 ───────────── */
+const LIGHT_COLORS = ['#ff4fa3', '#4ff3ff', '#ffd166', '#9dff6a', '#b18cff', '#ff8a3d'];
+const lights = [];
+function addLight() {
+  if (lights.length >= 6) lights.shift();
+  const col = LIGHT_COLORS[(lights.length + lightSeq++) % LIGHT_COLORS.length];
+  // 카메라 조금 앞에, 표면 거리에 맞는 세기로
+  const p = cam.pos.clone().add(new THREE.Vector3(0, 0, -camDE * 0.4).applyQuaternion(cam.q));
+  lights.push({ p, col, r: camDE * 2.5 });
+  renderLights();
+  toast('빛을 놓았습니다. 뒤로 물러나 둘러보세요.');
+}
+let lightSeq = 0;
+function renderLights() {
+  $('lightList').innerHTML = lights.map((l, i) => `<span><i style="background:${l.col};color:${l.col}"></i>빛 ${i + 1}</span>`).join('');
+}
+$('addLight').onclick = addLight;
+$('clearLights').onclick = () => { lights.length = 0; renderLights(); };
+
+/* ───────────── 7. 조작 연결 ───────────── */
+const fmt = { power: v => v.toFixed(1), iter: v => v, headPow: v => v.toFixed(2), headCone: v => v + '°', sunAz: v => v + '°', sunEl: v => v + '°',
+  glow: v => v.toFixed(2), fog: v => v.toFixed(2), scale: v => Math.round(v * 100) + '%', steps: v => v, detail: v => v.toFixed(2) };
+for (const [k, f] of Object.entries(fmt)) {
+  $(k).value = S[k]; $(k + 'V').textContent = f(S[k]);
+  $(k).addEventListener('input', () => { S[k] = Number($(k).value); $(k + 'V').textContent = f(S[k]); lastMove = performance.now(); });
+}
+for (const k of ['morph', 'headOn', 'sunOn', 'shadowOn', 'aoOn', 'crisp']) { $(k).checked = S[k]; $(k).addEventListener('change', () => { S[k] = $(k).checked; lastMove = performance.now(); }); }
+for (const k of ['headCol', 'sunCol']) { $(k).value = S[k]; $(k).addEventListener('input', () => { S[k] = $(k).value; lastMove = performance.now(); }); }
+$('palette').value = S.palette; $('palette').addEventListener('change', () => { S.palette = Number($('palette').value); lastMove = performance.now(); });
+function setType(t) {
+  S.type = t;
+  document.querySelectorAll('[data-type]').forEach(b => b.classList.toggle('sel', Number(b.dataset.type) === t));
+  $('powerRow').style.display = t === 0 ? '' : 'none';
+  $('morph').parentElement.style.display = t === 0 ? '' : 'none';
+  const it = $('iter');
+  if (t === 0) { it.max = 24; S.iter = 12; } else { it.max = 10; S.iter = t === 1 ? 5 : 7; }
+  it.value = S.iter; $('iterV').textContent = S.iter;
+  home();
+}
+document.querySelectorAll('[data-type]').forEach(b => b.addEventListener('click', () => setType(Number(b.dataset.type))));
+$('auto').onclick = toggleAuto;
+$('home').onclick = home;
+$('togglePanel').onclick = () => $('panel').classList.toggle('hide');
+if (innerWidth < 760) $('panel').classList.add('hide');
+let toastT;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200); }
+
+/* ───────────── 8. 루프 ───────────── */
+const fmtSci = x => { if (x >= 0.01) return x.toFixed(x >= 1 ? 2 : 3); const e = Math.floor(Math.log10(x)); return `${(x / 10 ** e).toFixed(1)}×10<sup>${e}</sup>`; };
+const fmtZoom = z => z < 1000 ? '×' + z.toFixed(z < 10 ? 1 : 0) : `×${(z / 10 ** Math.floor(Math.log10(z))).toFixed(1)}e${Math.floor(Math.log10(z))}`;
+let last = performance.now(), fpsAvg = 30, hudT = 0, t0 = performance.now(), startDE = 1;
+setType(S.type);
+if (Q.has('pos')) { const p = Q.get('pos').split(',').map(Number); cam.pos.set(...p); }
+if (Q.has('look')) { const l = Q.get('look').split(',').map(Number); cam.q.setFromRotationMatrix(new THREE.Matrix4().lookAt(cam.pos, new THREE.Vector3(...l), new THREE.Vector3(0, 1, 0))); }
+startDE = Math.max(DE(new THREE.Vector3(...HOMES[0].pos)), 1e-6);
+if (Q.has('zoomin')) { // 확인용: 자동 확대를 n 초 미리
+  auto = true; const n = Number(Q.get('zoomin')); for (let i = 0; i < n * 30; i++) fly(1 / 30); auto = Q.has('keepauto');
+}
+
+function frame() {
+  const now = performance.now(), dt = Math.max(0, Math.min(0.1, (now - last) / 1000)); last = now;
+  if (dt > 0) fpsAvg = fpsAvg * 0.9 + 0.1 / Math.max(dt, 1e-3);
+  const v = fly(dt);
+  const moving = now - lastMove < 250 || auto || S.morph || keys.size || padHeld.size || drag;
+  const scale = !moving && S.crisp ? 1 : S.scale;
+  ensureTarget(scale);
+
+  const time = (now - t0) / 1000;
+  if (S.morph && S.type === 0) { S.power = 8 + 3.5 * Math.sin(time * 0.25); $('power').value = S.power; $('powerV').textContent = S.power.toFixed(1); }
+  U.uRes.value.set(rt.width, rt.height);
+  U.uCamPos.value.copy(cam.pos);
+  U.uCamRot.value.setFromMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(cam.q));
+  U.uType.value = S.type; U.uPower.value = S.power; U.uIter.value = S.iter; U.uSteps.value = S.steps; U.uDetail.value = S.detail;
+  U.uScale.value = camDE;
+  const az = S.sunAz * Math.PI / 180, el = S.sunEl * Math.PI / 180;
+  U.uSunDir.value.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+  U.uSunCol.value.set(S.sunCol); U.uSunOn.value = S.sunOn ? 1 : 0; U.uShadowOn.value = S.shadowOn ? 1 : 0; U.uAoOn.value = S.aoOn ? 1 : 0;
+  U.uHeadCol.value.set(S.headCol); U.uHeadPow.value = S.headOn ? S.headPow : 0; U.uHeadCos.value = Math.cos(S.headCone * Math.PI / 180);
+  U.uNL.value = lights.length;
+  lights.forEach((l, i) => { U.uLP.value[i].copy(l.p); const c = new THREE.Color(l.col); U.uLC.value[i].set(c.r * 1.4, c.g * 1.4, c.b * 1.4); U.uLR.value[i] = l.r; });
+  const pal = PALETTES[S.palette];
+  U.uPA.value.set(...pal[0]); U.uPB.value.set(...pal[1]); U.uPC.value.set(...pal[2]); U.uPD.value.set(...pal[3]);
+  U.uGlow.value = S.glow; U.uFog.value = S.fog; U.uTime.value = time;
+
+  renderer.setRenderTarget(rt); renderer.render(marchScene, dummyCam);
+  renderer.setRenderTarget(null); renderer.render(blitScene, dummyCam);
+
+  if (now - hudT > 150) {
+    hudT = now;
+    const ref = S.type === 0 ? 0.55 : 1;
+    $('zoom').textContent = fmtZoom(Math.max(1, ref / camDE));
+    $('dist').innerHTML = fmtSci(camDE);
+    $('speed').innerHTML = fmtSci(v) + '/초';
+    $('fps').textContent = `${Math.round(fpsAvg)} · ${Math.round(scale * 100)}%`;
+    $('pos').textContent = `${cam.pos.x.toFixed(3)}, ${cam.pos.y.toFixed(3)}, ${cam.pos.z.toFixed(3)}`;
+    $('warn').classList.toggle('show', camDE < 3e-6);
+    if (auto && camDE < 1.5e-6) { toggleAuto(); toast('단정밀도 한계에 닿아 자동 확대를 멈췄습니다.'); }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__fx = { S, cam, get de() { return camDE; } };
+</script>
+</body>
+</html>
